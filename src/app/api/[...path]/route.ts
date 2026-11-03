@@ -88,6 +88,38 @@ async function handle(
 ) {
   try {
     const path = (await ctx.params).path.join("/");
+    if (path === "health" && req.method === "GET") {
+      if (
+        !process.env.CRON_SECRET ||
+        req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`
+      )
+        throw new Fault("Não autorizado.", 401);
+      const checks = configuration();
+      const [database, storage] = await Promise.allSettled([
+        query("select 1"),
+        Promise.resolve().then(() =>
+          supabase(true).storage.getBucket("contracts"),
+        ),
+      ]);
+      const databaseConnected = database.status === "fulfilled";
+      const privateStorageAccessible =
+        storage.status === "fulfilled" &&
+        !storage.value.error &&
+        storage.value.data?.public === false;
+      const ready =
+        Object.values(checks).every(Boolean) &&
+        databaseConnected &&
+        privateStorageAccessible;
+      return json(
+        {
+          ready,
+          configuration: checks,
+          databaseConnected,
+          privateStorageAccessible,
+        },
+        ready ? 200 : 503,
+      );
+    }
     if (path === "cron" && req.method === "POST") {
       if (
         !process.env.CRON_SECRET ||
