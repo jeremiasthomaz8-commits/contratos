@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { parties, defaultDetails } from "@/lib/domain";
+import { SignatureSummary, useSignatureStatus } from "./SignatureProgress";
 export type Logos = { scalup: string | null; jeremias: string | null };
 export function Brand({
   name,
@@ -214,6 +215,7 @@ export default function Experience({
   contract: string;
   logos: Logos;
 }) {
+  const signature = useSignatureStatus();
   const dialog = useRef<HTMLDialogElement>(null);
   const reduced = useReducedMotion();
   const [menu, setMenu] = useState(false);
@@ -426,6 +428,7 @@ export default function Experience({
             Revise os dados, confirme sua identidade e formalize
             <br className="desktop-break" /> esta parceria com segurança.
           </p>
+          <SignatureSummary {...signature} />
           <div className="signer-grid">
             {parties.map((p, i) => (
               <article className="signer-card" key={p.role}>
@@ -448,14 +451,48 @@ export default function Experience({
                   {i === 0 ? defaultDetails.companyCnpj : "50.118.963/0001-62"}
                 </p>
                 <span className="signer-email">{p.email}</span>
-                <div className="signer-state">
-                  <LockKeyhole size={14} /> Acesso por convite individual
+                <div
+                  className={`signer-state ${signature.status?.[p.role] ? "is-signed" : ""}`}
+                >
+                  {signature.status?.[p.role] ? (
+                    <>
+                      <Check size={16} /> Assinatura registrada
+                      {signature.unavailable
+                        ? " · atualização indisponível"
+                        : ""}
+                    </>
+                  ) : (
+                    <>
+                      <LockKeyhole size={14} />{" "}
+                      {signature.unavailable
+                        ? "Status temporariamente indisponível"
+                        : !signature.status
+                          ? "Consultando assinatura…"
+                          : signature.status.status === "cancelled"
+                            ? "Contrato cancelado"
+                            : signature.status.released
+                              ? "Aguardando assinatura"
+                              : "Acesso por convite individual"}
+                    </>
+                  )}
                 </div>
                 <button
                   className={`button ${i === 0 ? "primary" : "outline"}`}
+                  disabled={
+                    Boolean(signature.status?.[p.role]) ||
+                    signature.status?.status === "cancelled"
+                  }
                   onClick={() => setHelp(p.role)}
                 >
-                  Assinar como {p.role} <ArrowRight size={17} />
+                  {signature.status?.[p.role] ? (
+                    <>
+                      Assinado <Check size={17} />
+                    </>
+                  ) : (
+                    <>
+                      Assinar como {p.role} <ArrowRight size={17} />
+                    </>
+                  )}
                 </button>
               </article>
             ))}

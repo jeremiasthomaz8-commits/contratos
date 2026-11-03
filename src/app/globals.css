@@ -1522,3 +1522,42 @@ dialog.invite-dialog::backdrop {
     max-width: 58px;
   }
 }
+
+.signature-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  margin: 24px 0;
+  border: 1px solid #444;
+  border-radius: 12px;
+  background: #141414;
+  color: #eee;
+}
+.signature-progress > svg {
+  flex-shrink: 0;
+}
+.signature-progress strong {
+  display: block;
+  font-size: 16px;
+}
+.signature-progress small {
+  display: block;
+  margin-top: 6px;
+  color: #bdbdbd;
+  line-height: 1.6;
+}
+.signature-progress.complete {
+  border-color: #32805b;
+  background: #102219;
+}
+.signer-state.is-signed {
+  color: #8fe2b3;
+}
+.signer-card > .button:disabled {
+  background: #102219;
+  border: 1px solid #32805b;
+  color: #8fe2b3;
+  opacity: 1;
+  cursor: default;
+}

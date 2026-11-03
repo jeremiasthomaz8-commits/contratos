@@ -18,6 +18,7 @@ import {
   statusLabels,
 } from "@/lib/domain";
 import { BrandPair, Logos } from "@/components/Experience";
+import SignatureProgress from "@/components/SignatureProgress";
 type AdminData = {
   agreement: { draft: Details; status: string; current_version: string | null };
   versions: {
@@ -287,6 +288,7 @@ export default function Admin() {
           </form>
           <section className="panel">
             <h2>Liberação e convites</h2>
+            <SignatureProgress />
             <p>
               Confira os dados e o foro com as partes. Os limites de revisões e
               desdobramentos serão incluídos como alinhamentos complementares,

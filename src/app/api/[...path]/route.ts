@@ -20,6 +20,7 @@ import { logos, contractSource } from "@/lib/content";
 import { sha256 } from "@/lib/crypto";
 import { makePdf } from "@/lib/pdf";
 import { work } from "@/lib/worker";
+import { signatureStatusSql } from "@/lib/signature-status";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const cookieOptions = {
@@ -88,6 +89,16 @@ async function handle(
 ) {
   try {
     const path = (await ctx.params).path.join("/");
+    if (path === "signature-status" && req.method === "GET") {
+      try {
+        const result = await query(signatureStatusSql);
+        if (!result.rows[0])
+          return json({ error: "Status indisponível." }, 503);
+        return json(result.rows[0]);
+      } catch {
+        return json({ error: "Status indisponível." }, 503);
+      }
+    }
     if (path === "health" && req.method === "GET") {
       if (
         !process.env.CRON_SECRET ||
