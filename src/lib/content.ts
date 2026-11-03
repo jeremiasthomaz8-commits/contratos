@@ -1,19 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import knownDetails from "../../content/known-details.json";
+import { defaultDetails, renderContract } from "./domain";
 export const contractSource = () =>
   readFile(path.join(process.cwd(), "content/contract.md"), "utf8");
 export async function contractPreview() {
-  return (await contractSource())
-    .replace(
-      "CNPJ sob nº ____________________",
-      "CNPJ sob nº " + knownDetails.companyCnpj,
-    )
-    .replace(
-      "CNPJ: ____________________________________",
-      "CNPJ: " + knownDetails.companyCnpj,
-    );
+  return renderContract(await contractSource(), defaultDetails);
 }
 export async function logo(name: "scalup" | "jeremias") {
   for (const ext of ["svg", "png", "webp"]) {

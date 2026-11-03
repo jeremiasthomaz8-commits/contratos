@@ -440,7 +440,7 @@ export default function Experience({
                 <h3>{p.name}</h3>
                 <p className="signer-description">
                   {i === 0
-                    ? "Representante legal a informar na preparação."
+                    ? `${defaultDetails.companyName} · ${defaultDetails.representative}, titular.`
                     : "50.118.963 JEREMIAS VITOR DOS ANJOS THOMAZ"}
                 </p>
                 <p className="muted small">

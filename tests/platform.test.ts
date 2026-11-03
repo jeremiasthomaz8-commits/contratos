@@ -65,7 +65,9 @@ test("fonte oficial e todas as subcláusulas são preservadas", async () => {
     assert.ok(rendered.includes(match[0]));
   assert.ok(rendered.includes("**R$ 400,00 (quatrocentos reais)**"));
   assert.ok(rendered.includes("**30 (trinta) dias**"));
-  assert.equal(rendered.includes("____________________"), true); // Linhas de assinatura continuam no texto original.
+  assert.equal(rendered.includes("____________________"), false);
+  assert.equal(rendered.includes("Assinatura:"), false);
+  assert.ok(rendered.includes("**Local e data:** Jundiaí, 03/11/2026"));
 });
 test("hash canônico independe da ordem JSON; fila autenticada detecta adulteração", () => {
   assert.equal(

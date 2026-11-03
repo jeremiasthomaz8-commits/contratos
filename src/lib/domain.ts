@@ -93,44 +93,61 @@ export type Snapshot = {
   releasedAt: string;
 };
 export function renderContract(source: string, d: Details) {
-  const safe = (v: string) => v.replace(/[\r\n*#`_<>\[\]\\]/g, " ").trim();
+  const safe = (v: string) =>
+    (v || "").replace(/[\r\n*#`_<>\[\]\\]/g, " ").trim();
   const day = (v: string) => v.split("-").reverse().join("/");
-  return (
-    source
-      .replace(
-        "SCALUP, pessoa jurídica",
-        `${safe(d.companyName)} (SCALUP), pessoa jurídica`,
-      )
-      .replace(
-        "CNPJ sob nº ____________________",
-        `CNPJ sob nº ${safe(d.companyCnpj)}`,
-      )
-      .replace(
-        "com sede em ____________________",
-        `com sede em ${safe(d.companyAddress)}`,
-      )
-      .replace(
-        "representada por ____________________",
-        `representada por ${safe(d.representative)}, ${safe(d.authority)}`,
-      )
-      .replace(
-        "endereço completo ____________________",
-        `endereço completo ${safe(d.contractorAddress)}`,
-      )
-      .replace("__/__/________", day(d.startDate))
-      .replace("comarca de ____________________", `comarca de ${safe(d.venue)}`)
-      .replace(
-        "**Local e data:** ____________________________________",
-        `**Local e data:** ${safe(d.place)}, ${day(d.executionDate)}`,
-      )
-      .replace(
-        "CNPJ: ____________________________________",
-        `CNPJ: ${safe(d.companyCnpj)}`,
-      )
-      .replace(
-        "Representante: ____________________________________",
-        `Representante: ${safe(d.representative)}`,
-      ) +
-    `\n\n## ALINHAMENTOS COMPLEMENTARES DO ESCOPO\n\n**Revisões (cláusula 5.4):** ${safe(d.revisions)}\n\n**Desdobramentos (cláusula 2.4):** ${safe(d.adaptations)}\n`
+  // A fonte original fica arquivada; a versão atual usa apenas o fluxo eletrônico.
+  let result = source.split(/\n---\s*\n\*\*CONTRATANTE\*\*/)[0].trim();
+  const replaceIf = (value: string, from: string, to: string) => {
+    if (value) result = result.replace(from, to);
+  };
+  replaceIf(
+    d.companyName,
+    "SCALUP, pessoa jurídica",
+    safe(d.companyName) + " (SCALUP), pessoa jurídica",
   );
+  replaceIf(
+    d.companyCnpj,
+    "CNPJ sob nº ____________________",
+    "CNPJ sob nº " + safe(d.companyCnpj),
+  );
+  replaceIf(
+    d.companyAddress,
+    "com sede em ____________________",
+    "com sede em " + safe(d.companyAddress),
+  );
+  replaceIf(
+    d.representative,
+    "representada por ____________________",
+    "representada por " +
+      safe(d.representative) +
+      (d.authority ? ", " + safe(d.authority) : ""),
+  );
+  replaceIf(
+    d.contractorAddress,
+    "endereço completo ____________________",
+    "endereço completo " + safe(d.contractorAddress),
+  );
+  replaceIf(d.startDate, "__/__/________", day(d.startDate));
+  replaceIf(
+    d.venue,
+    "comarca de ____________________",
+    "comarca de " + safe(d.venue),
+  );
+  if (d.place && d.executionDate)
+    result = result.replace(
+      "**Local e data:** ____________________________________",
+      "**Local e data:** " + safe(d.place) + ", " + day(d.executionDate),
+    );
+  const scope = [];
+  if (d.revisions)
+    scope.push("**Revisões (cláusula 5.4):** " + safe(d.revisions));
+  if (d.adaptations)
+    scope.push("**Desdobramentos (cláusula 2.4):** " + safe(d.adaptations));
+  if (scope.length)
+    result +=
+      "\n\n## ALINHAMENTOS COMPLEMENTARES DO ESCOPO\n\n" +
+      scope.join("\n\n") +
+      "\n";
+  return result;
 }
