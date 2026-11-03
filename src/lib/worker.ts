@@ -67,8 +67,8 @@ export async function work() {
             v.id,
             `final:${v.id}:${signer.id}`,
             signer.email,
-            "Contrato finalizado — Scalup × Jeremias Thomaz",
-            `Olá!\n\nNosso contrato de prestação de serviços de design e edição de vídeos foi oficialmente assinado por ambas as partes.\nAs assinaturas eletrônicas foram registradas com sucesso.\nO contrato finalizado está disponível para consulta e download por meio do link seguro abaixo (válido por 7 dias, com verificação de e-mail):\n\n${process.env.APP_URL}/assinar#convite=${t}\n\nAgradecemos pela parceria!\nAtenciosamente,\nSistema de Contratos`,
+            `Contrato finalizado — ${v.snapshot.clientName || "SCALUP"} × Jeremias Thomaz`,
+            `Olá!\n\nO contrato ${v.snapshot.title || "de prestação de serviços"} foi assinado por ambas as partes.\nAs assinaturas eletrônicas foram registradas com sucesso.\nO contrato finalizado está disponível para consulta e download por meio do link seguro abaixo (válido por 7 dias, com verificação de e-mail):\n\n${process.env.APP_URL}/assinar#convite=${t}\n\nAgradecemos pela parceria!\nAtenciosamente,\nSistema de Contratos`,
           );
         }
         await db.query(

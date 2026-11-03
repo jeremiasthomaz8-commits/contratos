@@ -114,3 +114,13 @@ Referências consultadas: Next.js (documentação instalada), [Supabase Auth](ht
 
 Verificação adicional executada no projeto hospedado: conexão TLS, permissões da credencial restrita, trigger de assinatura e restrição de unicidade, em uma transação integralmente revertida. O banco permaneceu com um rascunho e zero versões liberadas, assinaturas e e-mails.
 
+
+## Painel de múltiplos contratos
+
+Em `/admin`, a lista oferece busca por cliente, título, código ou e-mail e filtros de situação. “Novo contrato” cria somente um rascunho: informe título, nome da marca, e-mail do cliente e opcionalmente seu logo. O editor permite preencher os dados legais, ajustar o texto e conferir a prévia antes de liberar uma versão e enviar convites.
+
+O logo J e o e-mail do contratado são definidos no servidor. Logos de clientes aceitam PNG, JPG ou WebP de até 1 MB, são validados pelo decodificador e normalizados para PNG. Nome da marca, destinatário, texto e logo ficam em `draft._contract`, no JSONB privado existente. Não há migração de esquema nem mudança de permissões. As versões liberadas preservam os dados e logos usados naquela liberação; editar o rascunho não altera documentos ou assinaturas anteriores.
+
+A listagem, logos dos clientes, edição e histórico exigem autenticação administrativa. Os endpoints de detalhe recebem `agreement` (código do contrato). O status público da página SCALUP continua limitado ao contrato original. Novos contratos são acessados pelas partes por convite individual.
+
+Verificações adicionais: `tests/multi-contract.test.ts` testa criação, liberação, isolamento de destinatários, marca J fixa e preservação de snapshots em PostgreSQL embutido. `node scripts/check-dashboard.mjs` testa a interface com respostas simuladas e verifica os bloqueios reais sem sessão; execute com o servidor local aberto. Nenhum convite é enviado por esses testes.

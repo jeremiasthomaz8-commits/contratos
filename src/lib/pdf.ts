@@ -30,8 +30,9 @@ export async function makePdf(
     ),
     { subset: true },
   );
-  doc.setTitle("Contrato Scalup × Jeremias Thomaz");
-  doc.setSubject(`SCALUP-JT-001 · Versão ${version}`);
+  const code = snapshot.code || "SCALUP-JT-001";
+  doc.setTitle(snapshot.title || "Contrato Scalup × Jeremias Thomaz");
+  doc.setSubject(`${code} · Versão ${version}`);
   doc.setLanguage("pt-BR");
   let page: PDFPage;
   let y = 0;
@@ -39,7 +40,7 @@ export async function makePdf(
   const newPage = () => {
     page = doc.addPage([595.28, 841.89]);
     y = 780;
-    page.drawText(`SCALUP × JEREMIAS THOMAZ  /  VERSÃO ${version}`, {
+    page.drawText(`${code} × JEREMIAS THOMAZ  /  VERSÃO ${version}`, {
       x: 56,
       y: 808,
       size: 8,
@@ -140,7 +141,7 @@ export async function makePdf(
     16,
     18,
   );
-  paragraph(`Contrato SCALUP-JT-001 · Versão ${version}`, bold);
+  paragraph(`Contrato ${code} · Versão ${version}`, bold);
   paragraph(`SHA-256 do conteúdo e metadados imutáveis: ${hash}`, regular, 9);
   paragraph(
     "Modalidade: aceite eletrônico com verificação por código de e-mail. Este documento não é uma assinatura digital qualificada ICP-Brasil.",
@@ -163,7 +164,7 @@ export async function makePdf(
   }
   for (const [index, p] of doc.getPages().entries())
     p.drawText(
-      `SCALUP-JT-001  ·  ${signatures.length === 2 ? "Assinado eletronicamente" : "Para revisão"}  ·  Página ${index + 1} de ${doc.getPageCount()}`,
+      `${code}  ·  ${signatures.length === 2 ? "Assinado eletronicamente" : "Para revisão"}  ·  Página ${index + 1} de ${doc.getPageCount()}`,
       { x: 56, y: 35, size: 8, font: regular, color: rgb(0.4, 0.4, 0.4) },
     );
   return Buffer.from(await doc.save());

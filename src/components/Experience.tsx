@@ -20,27 +20,35 @@ export type Logos = { scalup: string | null; jeremias: string | null };
 export function Brand({
   name,
   src,
+  label,
 }: {
   name: "scalup" | "jeremias";
   src: string | null;
+  label?: string;
 }) {
   return src ? (
     <img
       className={`brand-image brand-${name}`}
       src={src}
-      alt={name === "scalup" ? "SCALUP" : "Jeremias Thomaz"}
+      alt={label || (name === "scalup" ? "SCALUP" : "Jeremias Thomaz")}
     />
   ) : (
     <span className="brand-placeholder">
-      <span>{name === "scalup" ? "SCALUP" : "JEREMIAS THOMAZ"}</span>
+      <span>{label || (name === "scalup" ? "SCALUP" : "JEREMIAS THOMAZ")}</span>
       <small>logo oficial pendente</small>
     </span>
   );
 }
-export function BrandPair({ logos }: { logos: Logos }) {
+export function BrandPair({
+  logos,
+  clientName,
+}: {
+  logos: Logos;
+  clientName?: string;
+}) {
   return (
     <div className="brand-pair">
-      <Brand name="scalup" src={logos.scalup} />
+      <Brand name="scalup" src={logos.scalup} label={clientName} />
       <span className="brand-times" aria-hidden>
         ×
       </span>

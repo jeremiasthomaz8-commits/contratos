@@ -2,9 +2,9 @@ import { PoolClient } from "pg";
 import { randomInt } from "node:crypto";
 import { transaction, query } from "./db";
 import { digest, token, seal, sha256, canonical } from "./crypto";
-import { CONSENT, detailsSchema, parties, Snapshot } from "./domain";
-import { contractSource, logos } from "./content";
-import { renderContract } from "./domain";
+import { CONSENT, detailsSchema, draftSchema, Snapshot } from "./domain";
+import { agreementLogos, agreementText } from "./agreements";
+import { LEGACY_CODE, providerEmail, settingsFor } from "./contract-settings";
 import { configuration } from "./config";
 export class Fault extends Error {
   constructor(
@@ -50,26 +50,31 @@ export async function limit(key: string, max = 10, minutes = 10) {
       429,
     );
 }
-export async function release(actor: string) {
+export async function release(actor: string, code = LEGACY_CODE) {
   if (Object.values(configuration()).some((v) => !v))
     throw new Fault(
       "Configure banco, autenticação, armazenamento, e-mail, webhook e segredos antes da liberação.",
       503,
     );
-  const images = await logos();
-  if (!images.scalup || !images.jeremias)
-    throw new Fault(
-      "Inclua e confira os dois logos oficiais antes da liberação.",
-    );
   return transaction(async (db) => {
     const a = (
       await db.query("select * from ctr_agreements where code=$1 for update", [
-        "SCALUP-JT-001",
+        code,
       ])
     ).rows[0];
-    const d = detailsSchema.parse(a.draft);
+    if (!a) throw new Fault("Contrato não encontrado.", 404);
+    const settings = settingsFor(a);
+    const images = await agreementLogos(a);
+    if (!images.scalup || !images.jeremias)
+      throw new Fault(
+        "Adicione o logo do cliente antes de liberar o contrato.",
+      );
+    const d = detailsSchema.parse(draftSchema.parse(a.draft));
     const snap: Snapshot = {
-      text: renderContract(await contractSource(), d),
+      code: a.code,
+      title: settings.title,
+      clientName: settings.clientName,
+      text: await agreementText(a),
       details: d,
       logos: images,
       releasedAt: new Date().toISOString(),
@@ -96,7 +101,10 @@ export async function release(actor: string) {
         newVersion: v.id,
       });
     }
-    for (const p of parties)
+    for (const p of [
+      { role: "contratante", email: settings.clientEmail },
+      { role: "contratado", email: providerEmail },
+    ])
       await db.query(
         "insert into ctr_signers(version_id,role,name,email) values($1,$2,$3,$4)",
         [
@@ -116,13 +124,14 @@ export async function release(actor: string) {
     return v;
   });
 }
-export async function invite(role: string, actor: string) {
+export async function invite(role: string, actor: string, code = LEGACY_CODE) {
   return transaction(async (db) => {
     const a = (
       await db.query("select * from ctr_agreements where code=$1 for update", [
-        "SCALUP-JT-001",
+        code,
       ])
     ).rows[0];
+    if (!a) throw new Fault("Contrato não encontrado.", 404);
     if (!["awaiting", "partial", "signed"].includes(a.status))
       throw new Fault("Libere uma versão antes de enviar convites.");
     const s = (
@@ -149,7 +158,7 @@ export async function invite(role: string, actor: string) {
       a.current_version,
       `invite:${i.id}`,
       s.email,
-      "Seu contrato está pronto para revisão — Scalup × Jeremias",
+      `Seu contrato está pronto para revisão — ${settingsFor(a).clientName} × Jeremias`,
       `Olá, ${s.name}!\n\nRevise o contrato e confirme sua identidade pelo link individual abaixo. O acesso expira em 7 dias.\n\n${url}\n\nNão encaminhe este convite.\nSistema de Contratos`,
     );
     await audit(db, a.current_version, "convite_criado", actor, {
@@ -220,7 +229,7 @@ export async function challenge(secret: string) {
       i.version_id,
       `code:${c.id}`,
       i.email,
-      "Seu código de verificação — Contrato Scalup × Jeremias",
+      "Seu código de verificação — Contratos Jeremias Thomaz",
       `Seu código é ${code}.\n\nEle expira em 10 minutos. Não compartilhe este código.\nSe você não solicitou o acesso, ignore esta mensagem.\nSistema de Contratos`,
     );
     return {
@@ -384,8 +393,8 @@ export async function sign(
       s.version_id,
       `signature:${sig.id}`,
       s.email,
-      "Assinatura registrada — Contrato Scalup × Jeremias",
-      `Olá, ${s.name}!\n\nSua assinatura eletrônica foi registrada com sucesso.\nContrato: Prestação de Serviços de Design e Edição de Vídeos.\nStatus: Assinatura do ${s.role} concluída.\n\nAssim que ambas as partes finalizarem a assinatura, o contrato completo estará disponível para consulta e download.\n\nAtenciosamente,\nSistema de Contratos`,
+      "Assinatura registrada — Contratos Jeremias Thomaz",
+      `Olá, ${s.name}!\n\nSua assinatura eletrônica foi registrada com sucesso.\nContrato: ${s.snapshot.title || "Prestação de Serviços de Design e Edição de Vídeos"}.\nStatus: Assinatura do ${s.role} concluída.\n\nAssim que ambas as partes finalizarem a assinatura, o contrato completo estará disponível para consulta e download.\n\nAtenciosamente,\nSistema de Contratos`,
     );
     if (count === 2)
       await db.query(

@@ -81,7 +81,7 @@ export default function Signing() {
     <main className="sign-layout">
       <div className="app-top">
         <a href="/" className="wordmark">
-          <ArrowLeft size={16} /> SCALUP <span>×</span> JT
+          <ArrowLeft size={16} /> Contratos <span>·</span> Jeremias Thomaz
         </a>
         <span className="secure-label">
           <LockKeyhole size={14} /> Ambiente de assinatura
@@ -177,10 +177,13 @@ export default function Signing() {
         </section>
       ) : (
         <>
-          <BrandPair logos={view.snapshot.logos} />
+          <BrandPair
+            logos={view.snapshot.logos}
+            clientName={view.snapshot.clientName}
+          />
           <div className="page-intro">
             <span className="eyebrow">
-              SCALUP-JT-001 / VERSÃO {view.version}
+              {view.snapshot.code || "SCALUP-JT-001"} / VERSÃO {view.version}
             </span>
             <h1>
               {mine ? "Compromisso registrado." : "Revise. Confira."}

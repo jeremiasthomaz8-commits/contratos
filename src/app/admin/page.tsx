@@ -1,97 +1,89 @@
 "use client";
 import { useEffect, useState, FormEvent } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  LockKeyhole,
-  Check,
-  RefreshCw,
+  Plus,
+  Search,
+  ArrowUpRight,
   LogOut,
+  ArrowLeft,
+  RefreshCw,
+  FileText,
 } from "lucide-react";
-import Markdown from "react-markdown";
 import { api } from "@/lib/client";
-import {
-  Details,
-  defaultDetails,
-  fields,
-  parties,
-  statusLabels,
-} from "@/lib/domain";
-import { BrandPair, Logos } from "@/components/Experience";
-import SignatureProgress from "@/components/SignatureProgress";
-type AdminData = {
-  agreement: { draft: Details; status: string; current_version: string | null };
-  versions: {
-    id: string;
-    number: number;
-    created_at: string;
-    document_hash: string;
-    signatures: number;
-  }[];
-  signatures: {
-    name: string;
-    email: string;
-    signed_at: string;
-    version_id: string;
-  }[];
-  emails: {
-    id: string;
-    recipient: string;
-    status: string;
-    error: string | null;
-    created_at: string;
-  }[];
-  jobs: { id: string; status: string; error: string | null }[];
-  config: Record<string, boolean>;
-  logos: Logos;
+import { statusLabels } from "@/lib/domain";
+import type { ContractSettings } from "@/lib/contract-settings";
+import { ContractIdentity } from "@/components/ContractIdentity";
+import ContractEditor from "@/components/ContractEditor";
+type Entry = {
+  code: string;
+  title: string;
+  client_name: string;
+  client_email: string;
+  has_logo: boolean;
+  status: string;
+  signatures: number;
+  created_at: string;
+  current_version: string | null;
 };
-const configLabels: Record<string, string> = {
-  database: "Banco de dados",
-  auth: "Autenticação",
-  storage: "Armazenamento",
-  email: "E-mails",
-  secrets: "Segredos de segurança",
-  webhook: "Confirmação de entrega",
-};
-const mailLabels: Record<string, string> = {
-  expired: "Código expirado",
-  pending: "Na fila",
-  retry: "Nova tentativa programada",
-  sent: "Enviado ao provedor",
-  delivered: "Entrega confirmada",
-  failed: "Falha",
-  review: "Requer revisão",
-  bounced: "Devolvido",
-  complained: "Marcado como indesejado",
-  done: "Concluído",
+type Dashboard = { contracts: Entry[]; providerLogo: string | null };
+const blank: ContractSettings = {
+  title: "",
+  clientName: "",
+  clientEmail: "",
+  clientLogo: null,
+  source: null,
 };
 export default function Admin() {
-  const [data, setData] = useState<AdminData | null>(null);
-  const [draft, setDraft] = useState<Details>(defaultDetails);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [preview, setPreview] = useState("");
-  const [audit, setAudit] = useState<
-    { id: string; event: string; actor: string; created_at: string }[] | null
-  >(null);
-  async function refresh(reset = false) {
-    const d = await api("admin");
-    setData(d);
-    if (reset) setDraft({ ...defaultDetails, ...d.agreement.draft });
+  const [data, setData] = useState<Dashboard | null>(null),
+    [loading, setLoading] = useState(true),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [search, setSearch] = useState(""),
+    [filter, setFilter] = useState("all");
+  const [selected, setSelected] = useState<string | null>(null),
+    [creating, setCreating] = useState(false),
+    [newContract, setNewContract] = useState<ContractSettings>(blank);
+  async function refresh() {
+    setData(await api("admin/contracts"));
   }
   useEffect(() => {
-    refresh(true)
+    refresh()
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+  const authenticated = !!data;
+  useEffect(() => {
+    if (!authenticated || selected) return;
+    let disposed = false,
+      pending = false;
+    async function update() {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try {
+        const next = await api("admin/contracts");
+        if (!disposed) setData(next);
+      } catch {
+        if (!disposed)
+          setError(
+            "Não foi possível atualizar a lista. Use Atualizar ou entre novamente.",
+          );
+      } finally {
+        pending = false;
+      }
+    }
+    const timer = window.setInterval(update, 15000);
+    window.addEventListener("focus", update);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+    };
+  }, [authenticated, selected]);
   async function action(fn: () => Promise<void>) {
     setBusy(true);
     setError("");
-    setMessage("");
     try {
       await fn();
     } catch (e) {
@@ -105,401 +97,306 @@ export default function Admin() {
     void action(async () => {
       await api("auth/login", { email, password });
       setPassword("");
-      await refresh(true);
+      await refresh();
     });
   }
-  async function save() {
-    const r = await api("admin/draft", draft);
-    setMessage(r.message);
-    await refresh();
+  function create(e: FormEvent) {
+    e.preventDefault();
+    void action(async () => {
+      const result = await api("admin/contracts", newContract);
+      setCreating(false);
+      setNewContract(blank);
+      setSelected(result.code);
+    });
   }
+  if (selected)
+    return (
+      <ContractEditor
+        key={selected}
+        code={selected}
+        onBack={() => {
+          setSelected(null);
+          void refresh().catch(() => setData(null));
+        }}
+      />
+    );
+  const contracts = data?.contracts || [];
+  const filtered = contracts.filter(
+    (c) =>
+      (filter === "all" ||
+        (filter === "draft"
+          ? ["draft", "missing", "ready"].includes(c.status)
+          : filter === "pending"
+            ? ["awaiting", "partial"].includes(c.status)
+            : c.status === filter)) &&
+      `${c.title} ${c.client_name} ${c.code} ${c.client_email}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
   return (
-    <main className="app-shell">
-      <div className="app-top">
-        <a href="/" className="wordmark">
-          <ArrowLeft size={16} /> SCALUP <span>×</span> JT
+    <main className="dashboard-shell">
+      <header className="dashboard-header">
+        <a href="/admin" className="dashboard-brand">
+          <img src={data?.providerLogo || "/brand/jeremias.webp"} alt="J" />
+          <span>
+            Jeremias Thomaz<small>Gestão de contratos</small>
+          </span>
         </a>
-        {data ? (
+        {data && (
           <button
+            className="dashboard-logout"
+            disabled={busy}
             onClick={() =>
-              action(async () => {
+              void action(async () => {
                 await api("auth/logout", {});
                 setData(null);
+                setCreating(false);
               })
             }
           >
-            <LogOut size={15} /> Sair
+            <LogOut size={16} /> Sair
           </button>
-        ) : (
-          <span className="secure-label">
-            <LockKeyhole size={14} /> Acesso restrito
-          </span>
         )}
-      </div>
+      </header>
       {loading ? (
-        <p className="loading">Verificando acesso…</p>
+        <p className="loading">Carregando contratos…</p>
       ) : !data ? (
         <section className="panel login-panel">
-          <LockKeyhole size={25} className="accent" />
-          <div className="page-intro">
-            <h1>
-              Nos bastidores
-              <br />
-              <em>da parceria.</em>
-            </h1>
-            <p>
-              Entre para preparar os dados, conferir os logos e acompanhar as
-              assinaturas.
-            </p>
-          </div>
+          <h1>
+            Seus contratos,
+            <br />
+            em um só lugar.
+          </h1>
+          <p>Acesse para criar acordos e acompanhar cada assinatura.</p>
           <form onSubmit={login}>
-            <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
-              <label className="field">
-                E-mail do administrador
-                <input
-                  autoComplete="username"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="field">
-                Senha
-                <input
-                  autoComplete="current-password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                />
-              </label>
+            <label className="field">
+              E-mail
+              <input
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              Senha
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <button className="button primary" disabled={busy}>
+              {busy ? "Entrando…" : "Entrar"}
+            </button>
+          </form>
+        </section>
+      ) : creating ? (
+        <>
+          <button
+            className="dashboard-back"
+            disabled={busy}
+            onClick={() => setCreating(false)}
+          >
+            <ArrowLeft size={16} /> Voltar aos contratos
+          </button>
+          <div className="dashboard-intro">
+            <div>
+              <h1>Novo contrato</h1>
+              <p>
+                Comece pelo cliente. Na próxima etapa, ajuste os dados e os
+                termos do acordo.
+              </p>
+            </div>
+          </div>
+          <form className="panel" onSubmit={create}>
+            <ContractIdentity
+              value={newContract}
+              onChange={setNewContract}
+              providerLogo={data.providerLogo}
+              disabled={busy}
+            />
+            <div className="actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? "Criando…" : "Criar rascunho"}
+                <Plus size={18} />
+              </button>
+              <button
+                type="button"
+                className="button outline"
+                disabled={busy}
+                onClick={() => setCreating(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+            <p className="muted small">
+              Criar um rascunho não envia convites. Você poderá revisar o
+              contrato antes de liberá-lo.
+            </p>
+          </form>
+        </>
+      ) : (
+        <>
+          <div className="dashboard-intro">
+            <div>
+              <h1>Contratos</h1>
+              <p>Do primeiro acordo à última assinatura.</p>
             </div>
             <button
               className="button primary"
-              style={{ width: "100%", marginTop: 25 }}
-              disabled={busy}
+              onClick={() => setCreating(true)}
             >
-              {busy ? "Verificando…" : "Entrar com segurança"}
-              <ArrowRight size={17} />
+              <Plus size={18} /> Novo contrato
             </button>
-          </form>
-          <p style={{ marginTop: 20, marginBottom: 0 }}>
-            O acesso depende de uma conta cadastrada no Supabase e autorizada
-            para administrar este contrato.
-          </p>
-        </section>
-      ) : (
-        <>
-          <div className="page-intro">
-            <span className="eyebrow">ÁREA ADMINISTRATIVA / SCALUP-JT-001</span>
-            <h1>
-              Prepare o começo.
-              <br />
-              <em>Cuide dos detalhes.</em>
-            </h1>
-            <span className="status-chip">
-              {statusLabels[data.agreement.status]}
-            </span>
           </div>
-          <section className="panel">
-            <h2>Conexões e identidade visual</h2>
-            <div className="config-list">
-              {Object.entries(data.config).map(([key, ok]) => (
-                <span key={key}>
-                  {ok ? "✓" : "○"} {configLabels[key]} —{" "}
-                  {ok ? "Configurado" : "Pendente"}
-                </span>
-              ))}
+          <div className="dashboard-metrics" aria-label="Resumo dos contratos">
+            <div>
+              <span>Total de contratos</span>
+              <strong>{contracts.length.toString().padStart(2, "0")}</strong>
             </div>
-            <div style={{ margin: "30px 0" }}>
-              <BrandPair logos={data.logos} />
+            <div>
+              <span>Em preparação</span>
+              <strong>
+                {contracts
+                  .filter((c) =>
+                    ["draft", "missing", "ready"].includes(c.status),
+                  )
+                  .length.toString()
+                  .padStart(2, "0")}
+              </strong>
             </div>
-            <p>
-              Os logos oficiais são carregados de{" "}
-              <code>public/brand/scalup.svg</code> e{" "}
-              <code>public/brand/jeremias.svg</code> (ou PNG/WebP). Cada versão
-              liberada preserva uma cópia dos arquivos.
-            </p>
-          </section>
-          <form
-            className="panel"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(save);
-            }}
-          >
-            <h2>Dados do acordo</h2>
-            <p>
-              Salvar atualiza apenas o rascunho. Liberar cria uma nova versão
-              imutável e exige novas assinaturas de ambas as partes.
-            </p>
-            <div className="form-grid">
-              {fields.map(([key, label]) => (
-                <label className="field" key={key}>
-                  {label}
-                  {["revisions", "adaptations"].includes(key) ? (
-                    <textarea
-                      value={draft[key]}
-                      maxLength={1000}
-                      onChange={(e) =>
-                        setDraft({ ...draft, [key]: e.target.value })
-                      }
-                    />
-                  ) : (
-                    <input
-                      type={key.endsWith("Date") ? "date" : "text"}
-                      value={draft[key]}
-                      maxLength={1000}
-                      onChange={(e) =>
-                        setDraft({ ...draft, [key]: e.target.value })
-                      }
-                    />
-                  )}
-                </label>
-              ))}
+            <div>
+              <span>Aguardando assinaturas</span>
+              <strong>
+                {contracts
+                  .filter((c) => ["awaiting", "partial"].includes(c.status))
+                  .length.toString()
+                  .padStart(2, "0")}
+              </strong>
             </div>
-            <div className="actions">
-              <button className="button primary" disabled={busy} type="submit">
-                Salvar rascunho <Check size={16} />
-              </button>
-              <button
-                className="button outline"
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    await save();
-                    setPreview((await api("admin/preview")).text);
-                  })
-                }
-              >
-                Conferir contrato completo
-              </button>
+            <div>
+              <span>Concluídos</span>
+              <strong>
+                {contracts
+                  .filter((c) => c.status === "signed")
+                  .length.toString()
+                  .padStart(2, "0")}
+              </strong>
             </div>
-            {preview && (
-              <div className="admin-preview">
-                <div className="legal-text">
-                  <Markdown>{preview}</Markdown>
-                </div>
-              </div>
-            )}
-          </form>
-          <section className="panel">
-            <h2>Liberação e convites</h2>
-            <SignatureProgress />
-            <p>
-              Confira os dados e o foro com as partes. Os limites de revisões e
-              desdobramentos serão incluídos como alinhamentos complementares,
-              preservando as cláusulas originais.
-            </p>
-            <div className="actions">
-              <button
-                className="button primary"
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    if (
-                      !window.confirm(
-                        "Liberar uma nova versão? Convites anteriores serão revogados e ambas as partes precisarão assinar novamente.",
-                      )
-                    )
-                      return;
-                    await save();
-                    const r = await api("admin/release", {});
-                    setMessage(r.message);
-                    await refresh();
-                  })
-                }
-              >
-                Liberar nova versão <ArrowRight size={16} />
-              </button>
-              {parties.map((p) => (
-                <button
-                  className="button outline"
-                  key={p.role}
-                  disabled={busy || !data.agreement.current_version}
-                  onClick={() =>
-                    action(async () => {
-                      const r = await api("admin/invite", { role: p.role });
-                      setMessage(r.message);
-                      await refresh();
-                    })
-                  }
+          </div>
+          <section className="contract-list">
+            <div className="dashboard-toolbar">
+              <label className="dashboard-search">
+                <Search size={18} />
+                <input
+                  type="search"
+                  aria-label="Buscar contratos"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por cliente, contrato ou e-mail"
+                />
+              </label>
+              <label className="dashboard-filter">
+                <span>Status</span>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
                 >
-                  Enviar convite: {p.name}
-                </button>
-              ))}
-            </div>
-            <div className="actions">
+                  <option value="all">Todos</option>
+                  <option value="draft">Em preparação</option>
+                  <option value="pending">Aguardando assinaturas</option>
+                  <option value="signed">Concluídos</option>
+                  <option value="cancelled">Cancelados</option>
+                </select>
+              </label>
               <button
-                className="button outline"
-                disabled={busy || data.agreement.status === "signed"}
-                onClick={() =>
-                  action(async () => {
-                    if (
-                      !window.confirm(
-                        "Cancelar os convites ativos? O histórico será preservado.",
-                      )
-                    )
-                      return;
-                    const r = await api("admin/cancel", {});
-                    setMessage(r.message);
-                    await refresh();
-                  })
-                }
+                className="dashboard-refresh"
+                disabled={busy}
+                onClick={() => void action(refresh)}
+                aria-label="Atualizar contratos"
               >
-                Cancelar convites ativos
+                <RefreshCw size={18} />
               </button>
             </div>
-          </section>
-          <section className="panel">
-            <h2>Versões e assinaturas</h2>
-            {!data.versions.length ? (
-              <p>Nenhuma versão liberada.</p>
+            <div className="contract-list-heading" aria-hidden>
+              <span>Cliente / contrato</span>
+              <span>Situação</span>
+              <span>Assinaturas</span>
+              <span></span>
+            </div>
+            {!filtered.length ? (
+              <div className="dashboard-empty">
+                <FileText size={32} />
+                <h2>
+                  {contracts.length
+                    ? "Nenhum contrato encontrado"
+                    : "Seu próximo projeto começa aqui"}
+                </h2>
+                <p>
+                  {contracts.length
+                    ? "Tente outro nome ou ajuste o filtro."
+                    : "Crie um contrato, adicione o logo do cliente e acompanhe as assinaturas."}
+                </p>
+              </div>
             ) : (
-              <ul className="data-list">
-                {data.versions.map((v) => (
-                  <li key={v.id}>
-                    <div>
-                      Versão {v.number} · {v.signatures}/2 assinaturas ·{" "}
-                      {v.id === data.agreement.current_version
-                        ? "Atual"
-                        : "Substituída"}
-                      <small>
-                        {new Date(v.created_at).toLocaleString("pt-BR")}
-                      </small>
-                      <small className="hash">SHA-256: {v.document_hash}</small>
-                    </div>
-                    <div>
-                      <a href={`/api/document?version=${v.id}&draft=1`}>
-                        PDF para revisão
-                      </a>
-                      {v.signatures === 2 && (
-                        <>
-                          {" "}
-                          ·{" "}
-                          <a href={`/api/document?version=${v.id}`}>
-                            PDF assinado
-                          </a>
-                        </>
-                      )}{" "}
-                      ·{" "}
-                      <a
-                        href={`/api/document?version=${v.id}&format=evidence`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Evidências
-                      </a>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <ul className="data-list">
-              {data.signatures.map((s) => (
-                <li key={s.version_id + s.email}>
-                  <span>
-                    ✓ {s.name}
-                    <small>{s.email}</small>
-                  </span>
-                  <span>{new Date(s.signed_at).toLocaleString("pt-BR")}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-          <section className="panel">
-            <h2>Documentos e notificações</h2>
-            <p>
-              “Enviado ao provedor” não significa entregue. A entrega só é
-              confirmada por evento autenticado do serviço de e-mail.
-            </p>
-            <ul className="data-list">
-              {data.jobs.map((j) => (
-                <li key={j.id}>
-                  <span>
-                    Geração do PDF · {mailLabels[j.status] || j.status}
-                    <small>{j.error}</small>
-                  </span>
-                </li>
-              ))}
-              {data.emails.map((m) => (
-                <li key={m.id}>
-                  <span>
-                    {m.recipient}
-                    <small>
-                      {m.error ||
-                        new Date(m.created_at).toLocaleString("pt-BR")}
-                    </small>
-                  </span>
-                  <span>{mailLabels[m.status] || m.status}</span>
-                </li>
-              ))}
-            </ul>
-            {!data.emails.length && <p>Nenhum e-mail solicitado.</p>}
-            <div className="actions">
-              <button
-                className="button outline"
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    setMessage((await api("admin/process", {})).message);
-                    await refresh();
-                  })
-                }
-              >
-                Processar fila <RefreshCw size={15} />
-              </button>
-              <button
-                className="button outline"
-                disabled={busy}
-                onClick={() =>
-                  action(async () => {
-                    await refresh();
-                    setMessage("Estados atualizados.");
-                  })
-                }
-              >
-                Atualizar estados
-              </button>
-              <button
-                className="button outline"
-                disabled={busy}
-                onClick={() =>
-                  action(async () => setAudit(await api("admin/audit")))
-                }
-              >
-                Consultar auditoria
-              </button>
-            </div>
-            {audit && (
-              <ul className="data-list">
-                {audit.map((a) => (
-                  <li key={a.id}>
-                    <span>
-                      {a.event.replaceAll("_", " ")}
-                      <small>{a.actor}</small>
+              filtered.map((c) => (
+                <button
+                  className="contract-row"
+                  key={c.code}
+                  onClick={() => {
+                    setError("");
+                    setSelected(c.code);
+                  }}
+                >
+                  <span className="contract-row-identity">
+                    <span className="contract-avatar">
+                      {c.has_logo ? (
+                        <img
+                          loading="lazy"
+                          src={`/api/admin/logo?agreement=${encodeURIComponent(c.code)}`}
+                          alt=""
+                        />
+                      ) : (
+                        <span>{c.client_name.slice(0, 2).toUpperCase()}</span>
+                      )}
                     </span>
                     <span>
-                      {new Date(a.created_at).toLocaleString("pt-BR")}
+                      <strong>{c.client_name}</strong>
+                      <span className="contract-row-title">{c.title}</span>
+                      <small>{c.code}</small>
                     </span>
-                  </li>
-                ))}
-              </ul>
+                  </span>
+                  <span className={`contract-status status-${c.status}`}>
+                    {statusLabels[c.status] || c.status}
+                  </span>
+                  <span className="contract-signatures">
+                    <span>
+                      <i className={c.signatures >= 1 ? "filled" : ""} />
+                      <i className={c.signatures === 2 ? "filled" : ""} />
+                    </span>
+                    {c.current_version
+                      ? `${c.signatures}/2 assinaturas`
+                      : "Sem versão liberada"}
+                  </span>
+                  <ArrowUpRight size={20} />
+                </button>
+              ))
             )}
           </section>
+          <p className="dashboard-footnote">
+            Lista atualizada automaticamente. Seus documentos e os dados dos
+            clientes ficam na área restrita.
+          </p>
         </>
       )}
       {error && (
         <div className="notice" role="alert">
           {error}
-        </div>
-      )}
-      {message && (
-        <div className="notice" role="status">
-          {message}
         </div>
       )}
     </main>

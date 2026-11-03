@@ -11,10 +11,10 @@ export const parties = [
   },
 ] as const;
 export const fields = [
-  ["companyName", "Razão social da SCALUP"],
-  ["companyCnpj", "CNPJ da SCALUP"],
-  ["companyAddress", "Endereço completo da SCALUP"],
-  ["representative", "Representante legal da SCALUP"],
+  ["companyName", "Razão social do cliente"],
+  ["companyCnpj", "CNPJ do cliente"],
+  ["companyAddress", "Endereço completo do cliente"],
+  ["representative", "Representante legal do cliente"],
   ["authority", "Cargo ou poderes de representação"],
   ["contractorAddress", "Endereço completo do contratado"],
   ["startDate", "Data de início"],
@@ -87,19 +87,26 @@ export const statusLabels: Record<string, string> = {
   superseded: "Substituído por nova versão",
 };
 export type Snapshot = {
+  code?: string;
+  title?: string;
+  clientName?: string;
   text: string;
   details: Details;
   logos: { scalup: string | null; jeremias: string | null };
   releasedAt: string;
 };
-export function renderContract(source: string, d: Details) {
+export function renderContract(
+  source: string,
+  d: Details,
+  clientName = "SCALUP",
+) {
   const safe = (v: string) =>
     (v || "").replace(/[\r\n*#`_<>\[\]\\]/g, " ").trim();
   const day = (v: string) => v.split("-").reverse().join("/");
   // A fonte original fica arquivada; a versão atual usa apenas o fluxo eletrônico.
   let result = source.split(/\n---\s*\n\*\*CONTRATANTE\*\*/)[0].trim();
   const replaceIf = (value: string, from: string, to: string) => {
-    if (value) result = result.replace(from, to);
+    if (value) result = result.replace(from, () => to);
   };
   replaceIf(
     d.companyName,
@@ -149,5 +156,5 @@ export function renderContract(source: string, d: Details) {
       "\n\n## ALINHAMENTOS COMPLEMENTARES DO ESCOPO\n\n" +
       scope.join("\n\n") +
       "\n";
-  return result;
+  return result.replaceAll("SCALUP", () => safe(clientName));
 }

@@ -17,6 +17,18 @@ import {
 } from "@/lib/service";
 import { draftSchema, detailsSchema } from "@/lib/domain";
 import { logos, contractSource } from "@/lib/content";
+import {
+  createAgreement,
+  listAgreements,
+  agreementLogos,
+  agreementText,
+  normalizeClientLogo,
+} from "@/lib/agreements";
+import {
+  LEGACY_CODE,
+  settingsFor,
+  settingsSchema,
+} from "@/lib/contract-settings";
 import { sha256 } from "@/lib/crypto";
 import { makePdf } from "@/lib/pdf";
 import { work } from "@/lib/worker";
@@ -65,9 +77,9 @@ const ip = (req: NextRequest) =>
         .trim()
         .slice(0, 100) || null
     : null;
-async function body(req: NextRequest) {
+async function body(req: NextRequest, maxLength = 20000) {
   const raw = await req.text();
-  if (raw.length > 20000) throw new Fault("Solicitação muito grande.", 413);
+  if (raw.length > maxLength) throw new Fault("Solicitação muito grande.", 413);
   try {
     return JSON.parse(raw);
   } catch {
@@ -233,12 +245,83 @@ async function handle(
       });
       return response;
     }
-    if (path === "admin" && req.method === "GET") {
+    if (path === "admin/contracts" && req.method === "GET") {
       await admin(req);
+      return json({
+        contracts: await listAgreements(),
+        providerLogo: (await logos()).jeremias,
+      });
+    }
+    if (path === "admin/contracts" && req.method === "POST") {
+      const who = await admin(req);
+      await limit(`create-contract:${who}`, 30, 60);
+      const input = settingsSchema.parse(await body(req, 1600000));
+      try {
+        input.clientLogo = await normalizeClientLogo(input.clientLogo);
+      } catch {
+        throw new Fault("Logo inválido. Use PNG, JPG ou WebP de até 1 MB.");
+      }
+      return json(await createAgreement(input, who), 201);
+    }
+    const code = z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z0-9-]+$/)
+      .parse(req.nextUrl.searchParams.get("agreement") || LEGACY_CODE);
+    let administrator = "";
+    if (path === "admin" || path.startsWith("admin/")) {
+      administrator = await admin(req);
+      if (
+        !(await query("select id from ctr_agreements where code=$1", [code]))
+          .rows[0]
+      )
+        throw new Fault("Contrato não encontrado.", 404);
+    }
+    if (path === "admin/logo" && req.method === "GET") {
       const a = (
-        await query("select * from ctr_agreements where code=$1", [
-          "SCALUP-JT-001",
-        ])
+        await query("select * from ctr_agreements where code=$1", [code])
+      ).rows[0];
+      const image = (await agreementLogos(a)).scalup;
+      if (!image) throw new Fault("Logo não cadastrado.", 404);
+      return new NextResponse(Buffer.from(image.split(",")[1], "base64"), {
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
+    if (path === "admin/settings" && req.method === "POST") {
+      const who = administrator;
+      const settings = settingsSchema.parse(await body(req, 1600000));
+      try {
+        settings.clientLogo = await normalizeClientLogo(settings.clientLogo);
+      } catch {
+        throw new Fault("Logo inválido. Use PNG, JPG ou WebP de até 1 MB.");
+      }
+      await transaction(async (db) => {
+        const a = (
+          await db.query(
+            "select * from ctr_agreements where code=$1 for update",
+            [code],
+          )
+        ).rows[0];
+        await db.query(
+          "update ctr_agreements set draft=jsonb_set(draft,'{_contract}',$1::jsonb) where id=$2",
+          [JSON.stringify(settings), a.id],
+        );
+        await audit(db, a.current_version, "identidade_atualizada", who, {
+          agreement: code,
+        });
+      });
+      return json({
+        message:
+          "Dados e logo salvos no rascunho. Versões liberadas permanecem intactas.",
+      });
+    }
+    if (path === "admin" && req.method === "GET") {
+      const a = (
+        await query("select * from ctr_agreements where code=$1", [code])
       ).rows[0];
       const versions = (
         await query(
@@ -248,17 +331,20 @@ async function handle(
       ).rows;
       const signatures = (
         await query(
-          "select name,email,signed_at,version_id from ctr_signatures order by signed_at desc",
+          "select name,email,signed_at,version_id from ctr_signatures where version_id in (select id from ctr_versions where agreement_id=$1) order by signed_at desc",
+          [a.id],
         )
       ).rows;
       const emails = (
         await query(
-          "select id,recipient,status,error,created_at from ctr_outbox order by created_at desc limit 50",
+          "select id,recipient,status,error,created_at from ctr_outbox where version_id in (select id from ctr_versions where agreement_id=$1) order by created_at desc limit 50",
+          [a.id],
         )
       ).rows;
       const jobs = (
         await query(
-          "select id,status,error from ctr_jobs order by next_at desc",
+          "select id,status,error from ctr_jobs where version_id in (select id from ctr_versions where agreement_id=$1) order by next_at desc",
+          [a.id],
         )
       ).rows;
       return json({
@@ -268,21 +354,25 @@ async function handle(
         emails,
         jobs,
         config: configuration(),
-        logos: await logos(),
+        logos: await agreementLogos(a),
+        settings: {
+          ...settingsFor(a),
+          source: settingsFor(a).source || (await contractSource()),
+        },
       });
     }
     if (path === "admin/draft" && req.method === "POST") {
-      const who = await admin(req);
+      const who = administrator;
       const data = draftSchema.parse(await body(req));
       await transaction(async (db) => {
         const a = (
           await db.query(
             "select * from ctr_agreements where code=$1 for update",
-            ["SCALUP-JT-001"],
+            [code],
           )
         ).rows[0];
         await db.query(
-          "update ctr_agreements set draft=$1,status=case when current_version is null then $2 else status end where id=$3",
+          "update ctr_agreements set draft=draft || $1::jsonb,status=case when current_version is null then $2 else status end where id=$3",
           [
             data,
             detailsSchema.safeParse(data).success ? "ready" : "missing",
@@ -296,30 +386,30 @@ async function handle(
       });
     }
     if (path === "admin/release" && req.method === "POST") {
-      const who = await admin(req);
-      const v = await release(who);
+      const who = administrator;
+      const v = await release(who, code);
       return json({
         message: `Versão ${v.number} liberada. Ambas as partes deverão assiná-la.`,
         version: v.number,
       });
     }
     if (path === "admin/invite" && req.method === "POST") {
-      const who = await admin(req);
+      const who = administrator;
       const { role } = z
         .object({ role: z.enum(["contratante", "contratado"]) })
         .parse(await body(req));
-      await limit(`invite:${who}:${role}`, 5, 60);
-      const result = await invite(role, who);
+      await limit(`invite:${who}:${code}:${role}`, 5, 60);
+      const result = await invite(role, who, code);
       schedule();
       return json(result);
     }
     if (path === "admin/cancel" && req.method === "POST") {
-      const who = await admin(req);
+      const who = administrator;
       await transaction(async (db) => {
         const a = (
           await db.query(
             "select * from ctr_agreements where code=$1 for update",
-            ["SCALUP-JT-001"],
+            [code],
           )
         ).rows[0];
         if (a.status === "signed")
@@ -341,31 +431,26 @@ async function handle(
       });
     }
     if (path === "admin/process" && req.method === "POST") {
-      await admin(req);
       const result = await work();
       return json({
         message: `Fila processada: ${result.processed} item(ns).`,
       });
     }
     if (path === "admin/audit" && req.method === "GET") {
-      await admin(req);
       return json(
         (
           await query(
-            "select * from ctr_audit order by created_at desc limit 500",
+            "select * from ctr_audit where version_id in (select v.id from ctr_versions v join ctr_agreements a on a.id=v.agreement_id where a.code=$1) or details->>'agreement'=$1 order by created_at desc limit 500",
+            [code],
           )
         ).rows,
       );
     }
     if (path === "admin/preview" && req.method === "GET") {
-      await admin(req);
       const a = (
-        await query("select draft from ctr_agreements where code=$1", [
-          "SCALUP-JT-001",
-        ])
+        await query("select * from ctr_agreements where code=$1", [code])
       ).rows[0];
-      const { renderContract } = await import("@/lib/domain");
-      return json({ text: renderContract(await contractSource(), a.draft) });
+      return json({ text: await agreementText(a) });
     }
     if (path === "sign/challenge" && req.method === "POST") {
       const { token } = z
@@ -428,7 +513,7 @@ async function handle(
           )
         ).rows;
         return json({
-          agreement: "SCALUP-JT-001",
+          agreement: v.snapshot.code || LEGACY_CODE,
           version: v.number,
           hash: v.document_hash,
           snapshot: v.snapshot,
